@@ -1,0 +1,51 @@
+"Games"
+{	
+	"#default"
+	{
+		"Offsets"
+		{
+			"CSocketCreator::m_hListenSocket"
+			{
+				"windows"   "24"
+				"windows64" "40"
+				"linux"     "24"
+				"linux64"   "40"
+			}
+			// Amount of bytes to offset the function that calls RCONServer()
+			"RCONServer"
+			{
+				"windows" "16"
+			}
+		}
+		"Signatures"
+		{
+			"RCONServer"
+			{
+				// String "-usercon", follow the graph node when if statement is true, it will be the only subroutine called twice
+				"library"   "engine"
+				"windows"   "\x55\x8B\xEC\x56\xFF\x75\x10\x8B\xF1\xFF\x75\x0C\xFF\x75\x08" // Another subroutine that calls RCONServer()
+				"windows64" "\x48\x8D\x05\xB9\x48\x33\x00"
+				"linux"     "@_Z10RCONServerv"
+				"linux64"   "@_Z10RCONServerv"
+			}
+			"CSocketCreator::CreateListenSocket"
+			{
+				// String "Socket unable to create socket"
+				"library"   "engine"
+				"windows"   "\x55\x8B\xEC\x83\xEC\x10\x56\x8B\xF1\x57"
+				"windows64" "\x48\x89\x5C\x24\x08\x48\x89\x74\x24\x10\x57\x48\x83\xEC\x30\x48\x63\x41\x28"
+				"linux"     "@_ZN14CSocketCreator18CreateListenSocketERK8netadr_s"
+				"linux64"   "@_ZN14CSocketCreator18CreateListenSocketERK8netadr_s"
+			}
+			"CSocketCreator::CloseAllAcceptedSockets"
+			{	
+				// String "Socket ioctl(FIONBIO) failed" - First called subroutine
+				"library"   "engine"
+				"windows"   "\x55\x8B\xEC\x51\x53\x8B\xD9\x8B\x43\x10"
+				"windows64" "\x48\x89\x6C\x24\x18\x56\x48\x83\xEC\x20\x48\x63\x69\x18"
+				"linux"     "@_ZN14CSocketCreator23CloseAllAcceptedSocketsEv"
+				"linux64"   "@_ZN14CSocketCreator23CloseAllAcceptedSocketsEv"
+			}
+		}
+	}
+}

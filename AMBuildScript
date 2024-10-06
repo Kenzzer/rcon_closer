@@ -1,0 +1,201 @@
+# vim: set ts=2 sw=2 tw=99 noet ft=python: 
+import os, sys, shutil
+
+def ResolveEnvPath(env, folder=None):
+  if env in os.environ:
+    path = os.environ[env]
+    if os.path.isdir(path):
+      return path
+    return None
+
+  if folder:
+    head = os.getcwd()
+    oldhead = None
+    while head != None and head != oldhead:
+      path = os.path.join(head, folder)
+      if os.path.isdir(path):
+        return path
+      oldhead = head
+      head, tail = os.path.split(head)
+
+  return None
+
+def Normalize(path):
+  return os.path.abspath(os.path.normpath(path))
+
+class Config(object):
+  def __init__(self):
+    self.sm_root = None
+    self.extension = None
+    self.generated_headers = None
+    self.targets = []
+    self.target_archs = set()
+    self.libsafetyhook = None
+
+    if builder.options.targets:
+      target_archs = builder.options.targets.split(',')
+    else:
+      target_archs = ['x86', 'x86_64']
+
+    for arch in target_archs:
+        try:
+            cxx = builder.DetectCxx(target_arch = arch)
+            self.target_archs.add(cxx.target.arch)
+        except Exception as e:
+            if builder.options.targets:
+                raise
+            print('Skipping target {}: {}'.format(arch, e))
+            continue
+        self.targets.append(cxx)
+
+    if not self.targets:
+      raise Exception('No suitable C/C++ compiler was found.')
+  
+  @property
+  def tag(self):
+    if builder.options.debug == '1':
+      return 'Debug'
+    return 'Release'
+
+  def shouldIncludeSdk(self, sdk):
+    return not sdk.get('source2', False)
+  
+  def retrieve_sm(self):
+    if builder.options.sm_path:
+      self.sm_root = builder.options.sm_path
+    else:
+      self.sm_root = ResolveEnvPath('SOURCEMOD', 'sourcemod')
+
+    if not self.sm_root or not os.path.isdir(self.sm_root):
+      raise Exception('Could not find a source copy of SourceMod')
+    self.sm_root = Normalize(self.sm_root)
+    
+  def use_auto_versioning(self):
+    return not builder.options.disable_auto_versioning
+  
+  def configure_cxx(self, cxx):
+    if cxx.like('gcc'):
+      self.configure_gcc(cxx)
+    elif cxx.family == 'msvc':
+      self.configure_msvc(cxx)
+
+    # Optimization
+    if builder.options.opt == '1':
+      cxx.defines += ['NDEBUG']
+
+    # Debugging
+    if builder.options.debug == '1':
+      cxx.defines += ['DEBUG', '_DEBUG']
+
+    # Platform-specifics
+    if cxx.target.platform == 'linux':
+      self.configure_linux(cxx)
+    elif cxx.target.platform == 'windows':
+      self.configure_windows(cxx)
+  
+  def configure_gcc(self, cxx):
+    cxx.cflags += [
+      '-fPIC',
+      '-Wall',
+      '-Werror',
+    ]
+
+    cxx.cxxflags += [
+      '-std=c++17'
+    ]
+
+    if builder.options.opt == '1':
+      cxx.cflags += ['-O3']
+    return
+
+  def configure_msvc(self, cxx):
+    cxx.cxxflags += [
+      '/std:c++17'
+    ]
+
+    cxx.linkflags += [
+      'kernel32.lib',
+      'Ws2_32.lib'
+    ]
+
+    return
+  
+  def configure_linux(self, cxx):
+    cxx.defines += ['_LINUX', 'POSIX']
+    return
+  
+  def configure_windows(self, cxx):
+    cxx.defines += ['_WINDOWS']
+    if cxx.target.arch == 'x86':
+      cxx.defines += ['WIN32']
+    elif cxx.target.arch == 'x86_64':
+      cxx.defines += ['WIN64']
+    return
+  
+  def configure(self):
+    self.retrieve_sm()
+
+    for cxx in self.targets:
+      self.configure_cxx(cxx)
+
+  def configure_extension(self, binary, context):
+    binary.compiler.cxxincludes += [
+      os.path.join(context.currentSourcePath),
+      os.path.join(self.sm_root, 'public'),
+      os.path.join(self.sm_root, 'public', 'extensions'),
+      os.path.join(self.sm_root, 'public', 'amtl', 'amtl'),
+      os.path.join(self.sm_root, 'public', 'amtl'),
+      os.path.join(self.sm_root, 'sourcepawn', 'include')
+    ]
+  
+  def AddVersioning(self, binary):
+    if self.use_auto_versioning():
+      binary.compiler.sourcedeps += Extension.generated_headers
+      binary.compiler.defines += ['GIT_ACTION_BUILD']
+      binary.compiler.includes += [os.path.join(builder.buildPath, 'includes')]
+    return binary
+
+  def AddCDetour(self, binary):
+    binary.sources += [ os.path.join(self.sm_root, 'public', 'CDetour', 'detours.cpp') ]
+    binary.compiler.cxxincludes += [ os.path.join(builder.sourcePath, 'third_party', 'safetyhook', 'include') ]
+
+    for task in self.libsafetyhook:
+      if task.target.arch == binary.compiler.target.arch:
+        binary.compiler.linkflags += [task.binary]
+        return
+    raise Exception('No suitable build of safetyhook was found.')
+
+  def ConfigureLibrary(self, project, compiler, context):
+    binary = project.Configure(compiler, project.name, '{0} - {1}'.format(self.tag, compiler.target.arch))
+    binary.compiler.cxxincludes += [
+      os.path.join(context.currentSourcePath)
+    ]
+    return binary
+  
+  def ConfigureExtension(self, project, compiler, context):
+    binary = self.ConfigureLibrary(project, compiler, context)
+    self.configure_extension(binary, context)
+    self.AddVersioning(binary)
+    return binary
+
+Extension = Config()
+Extension.configure()
+
+if Extension.use_auto_versioning():
+  Extension.generated_headers = builder.Build(
+    'tools/Versioning',
+    { 'Extension': Extension }
+  )
+
+class SafetyHookShim(object):
+  def __init__(self):
+    self.all_targets = {}
+    self.libsafetyhook = {}
+
+SafetyHook = SafetyHookShim()
+SafetyHook.all_targets = Extension.targets
+builder.Build(os.path.join('third_party/safetyhook/AMBuilder'), {'SafetyHook': SafetyHook })
+Extension.libsafetyhook = SafetyHook.libsafetyhook
+
+BuildScripts = ['extension/AMBuilder', 'PackageScript']
+builder.Build(BuildScripts, { 'Extension': Extension })

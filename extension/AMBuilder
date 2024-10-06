@@ -1,0 +1,14 @@
+# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
+import os, sys
+
+project = builder.LibraryProject('rcon_closer.ext')
+project.sources = [
+  'main.cpp',
+  os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp')
+]
+
+for cxx in Extension.targets:
+  binary = Extension.ConfigureExtension(project, cxx, builder)
+  Extension.AddCDetour(binary)
+
+Extension.extension = builder.Add(project)
