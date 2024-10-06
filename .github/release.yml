@@ -1,0 +1,81 @@
+name: Build Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+jobs:
+  build-extension:
+    uses: ./.github/workflows/ci-extension.yml
+
+  release:
+    permissions: write-all
+    runs-on: ubuntu-latest
+    needs: [build-extension]
+
+    steps:
+    - run: sudo apt-get install -y tree
+
+    - name: Download Linux release
+      uses: actions/download-artifact@v3
+      with:
+        name: Linux
+        path: linux
+
+    - name: Download Windows release
+      uses: actions/download-artifact@v3
+      with:
+        name: Windows
+        path: windows
+
+    - name: Download verisioning files
+      uses: actions/download-artifact@v3
+      with:
+        name: versioning_files
+        path: versioning_files
+
+    - name: Prepare archives
+      run: |
+        cd linux
+        touch addons/sourcemod/extensions/rcon_closer.autoload
+        tar -czf linux.tar.gz *
+        cd ../windows
+        touch addons/sourcemod/extensions/rcon_closer.autoload
+        zip -r windows.zip .
+        cd ..
+        RELEASE="$(cat ./versioning_files/git_action_release)"
+        echo "GITHUB_RELEASE_TAG=$RELEASE" >> $GITHUB_ENV
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+          tag_name: ${{ env.GITHUB_RELEASE_TAG }}
+          release_name: RCONLocker ${{ env.GITHUB_RELEASE_TAG }}
+          body: |
+            ${{ github.event.head_commit.message }}
+          draft: false
+          prerelease: false
+
+    - name: Upload Linux release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./linux/linux.tar.gz
+        asset_name: rcon_closer${{ env.GITHUB_RELEASE_TAG }}_linux.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Windows release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./windows/windows.zip
+        asset_name: rcon_closer${{ env.GITHUB_RELEASE_TAG }}_windows.zip
+        asset_content_type: application/zip
