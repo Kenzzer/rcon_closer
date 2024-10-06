@@ -32,7 +32,7 @@ jobs:
     runs-on: ${{ matrix.platform.os }}
 
     env:
-      SOURCEMOD_VERSION: '35ac74c7a7243e17a3aa2338b116eaa8a0a9ccdc'
+      SOURCEMOD_VERSION: '4e15a92984570aee8cb8438c8fd8bd24876342ca'
       CACHE_PATH: ${{ github.workspace }}/cache
     steps:
           
@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
-          path: RCONCloser
+          path: rcon_closer
 
       - uses: actions/checkout@v4
         name: Sourcemod checkout
@@ -107,7 +107,7 @@ jobs:
           ${{ matrix.platform.cxx }} --version
 
       - name: Build
-        working-directory: RCONCloser
+        working-directory: rcon_closer
         run: |
           mkdir build
           cd build

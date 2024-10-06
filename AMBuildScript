@@ -98,6 +98,8 @@ class Config(object):
       '-fPIC',
       '-Wall',
       '-Werror',
+      '-Wno-unused-result',
+      '-Wno-implicit-exception-spec-mismatch'
     ]
 
     cxx.cxxflags += [
